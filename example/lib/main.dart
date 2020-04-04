@@ -10,31 +10,45 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  final audios = <Audio>[
-    Audio("assets/audios/song1.mp3"),
-    Audio("assets/audios/song2.mp3"),
-    Audio("assets/audios/song3.mp3"),
+  final assets = <String>[
+    "assets/audios/song1.mp3",
+    "assets/audios/song2.mp3",
+    "assets/audios/song3.mp3",
   ];
-
   final AssetsAudioPlayer _assetsAudioPlayer = AssetsAudioPlayer();
 
-  @override
-  void initState() {
-    _assetsAudioPlayer.playlistFinished.listen((data){
-      print("finished : $data");
-    });
-    _assetsAudioPlayer.playlistAudioFinished.listen((data){
-      print("playlistAudioFinished : $data");
-    });
-    _assetsAudioPlayer.current.listen((data){
-      print("current : $data");
-    });
-    super.initState();
+  var _currentAssetPosition = -1;
+
+  void _open(int assetIndex) {
+    _currentAssetPosition = assetIndex % assets.length;
+    _assetsAudioPlayer.open(assets[_currentAssetPosition]);
+  }
+
+  void _playPause() {
+    _assetsAudioPlayer.playOrPause();
+  }
+
+  void _next() {
+    if(_assetsAudioPlayer.playlist != null){
+      _assetsAudioPlayer.playlistNext();
+    } else {
+      _currentAssetPosition++;
+      _open(_currentAssetPosition);
+    }
+  }
+
+  void _prev() {
+    if(_assetsAudioPlayer.playlist != null){
+      _assetsAudioPlayer.playlistPrevious();
+    } else {
+      _currentAssetPosition--;
+      _open(_currentAssetPosition);
+    }
   }
 
   @override
   void dispose() {
-    _assetsAudioPlayer.dispose();
+    _assetsAudioPlayer.stop();
     super.dispose();
   }
 
@@ -52,31 +66,33 @@ class _MyAppState extends State<MyApp> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
               RaisedButton(
-                onPressed: () {
-                  _assetsAudioPlayer.open(Playlist(audios: this.audios));
+                onPressed: (){
+                  _assetsAudioPlayer.openPlaylist(Playlist(
+                    assetAudioPaths: this.assets
+                  ));
                 },
                 child: Text("Playlist test"),
               ),
               Expanded(
                 child: StreamBuilder(
-                    stream: _assetsAudioPlayer.current,
-                    builder: (BuildContext context, AsyncSnapshot<Playing> snapshot) {
-                      final Playing playing = snapshot.data;
-
-                      return ListView.builder(
-                        itemBuilder: (context, position) {
-                          return ListTile(
-                              title: Text(audios[position].path.split("/").last,
-                                  style: TextStyle(
-                                    color: audios[position].path == playing?.audio?.assetAudioPath ? Colors.blue : Colors.black,
-                                  )),
-                              onTap: () {
-                                _assetsAudioPlayer.open(audios[position]);
-                              });
-                        },
-                        itemCount: audios.length,
-                      );
-                    }),
+                  stream: _assetsAudioPlayer.current,
+                  initialData: const PlayingAudio(),
+                  builder: (BuildContext context, AsyncSnapshot<PlayingAudio> snapshot) {
+                    final PlayingAudio currentAudio = snapshot.data;
+                    return ListView.builder(
+                      itemBuilder: (context, position) {
+                        return ListTile(
+                            title: Text(assets[position]
+                                .split("/")
+                                .last, style: TextStyle(color: assets[position] == currentAudio.assetAudioPath ? Colors.blue : Colors.black)),
+                            onTap: () {
+                              _open(position);
+                            });
+                      },
+                      itemCount: assets.length,
+                    );
+                  },
+                ),
               ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -117,10 +133,10 @@ class _MyAppState extends State<MyApp> {
                   Text(" - "),
                   StreamBuilder(
                     stream: _assetsAudioPlayer.current,
-                    builder: (BuildContext context, AsyncSnapshot<Playing> snapshot) {
+                    builder: (BuildContext context, AsyncSnapshot<PlayingAudio> snapshot) {
                       Duration duration = Duration();
                       if (snapshot.hasData) {
-                        duration = snapshot.data.audio.duration;
+                        duration = snapshot.data.duration;
                       }
                       return Text(durationToString(duration));
                     },
@@ -132,9 +148,7 @@ class _MyAppState extends State<MyApp> {
                 mainAxisSize: MainAxisSize.max,
                 children: [
                   IconButton(
-                    onPressed: () {
-                      _assetsAudioPlayer.previous();
-                    },
+                    onPressed: _prev,
                     icon: Icon(AssetAudioPlayerIcons.to_start),
                   ),
                   StreamBuilder(
@@ -142,18 +156,14 @@ class _MyAppState extends State<MyApp> {
                     initialData: false,
                     builder: (BuildContext context, AsyncSnapshot<bool> snapshot) {
                       return IconButton(
-                        onPressed: () {
-                          _assetsAudioPlayer.playOrPause();
-                        },
+                        onPressed: _playPause,
                         icon: Icon(snapshot.data ? AssetAudioPlayerIcons.pause : AssetAudioPlayerIcons.play),
                       );
                     },
                   ),
                   IconButton(
                     icon: Icon(AssetAudioPlayerIcons.to_end),
-                    onPressed: () {
-                      _assetsAudioPlayer.next();
-                    },
+                    onPressed: _next,
                   ),
                 ],
               ),

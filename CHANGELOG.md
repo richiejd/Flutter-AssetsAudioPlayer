@@ -1,7 +1,3 @@
-## 1.2.4
-
-* Added playlist
-
 ## 1.2.3
 
 * Added playlist (beta)

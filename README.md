@@ -22,7 +22,7 @@ flutter:
 final assetsAudioPlayer = AssetsAudioPlayer();
 
 assetsAudioPlayer.open(
-    Audio("assets/audios/song1.mp3"),
+    "assets/audios/song1.mp3",
 );
 ```
 
@@ -42,7 +42,7 @@ assetsAudioPlayer.stop();
 
 # Playlist
 ```Dart
-assetsAudioPlayer.open(
+assetsAudioPlayer.openPlaylist(
   Playlist(
     assetAudioPaths: [
       "assets/audios/song1.mp3",
@@ -51,9 +51,9 @@ assetsAudioPlayer.open(
   )
 );
 
-assetsAudioPlayer.next();
-assetsAudioPlayer.prev();
-assetsAudioPlayer.playAtIndex(1);
+assetsAudioPlayer.playlistNext();
+assetsAudioPlayer.playlistPrev();
+assetsAudioPlayer.playlistPlayAtIndex(1);
 ```
 
 ## Listeners

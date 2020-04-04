@@ -1,25 +1,19 @@
 import 'dart:async';
 
-import 'package:assets_audio_player/playing.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:rxdart/subjects.dart';
-
-import 'playing.dart';
-export 'playing.dart';
-
-import 'playable.dart';
-export 'playable.dart';
 
 /// The AssetsAudioPlayer, playing audios from assets/
 /// Example :
 ///
 ///     AssetsAudioPlayer _assetsAudioPlayer = AssetsAudioPlayer();
 ///
-///     _assetsAudioPlayer.open(Audio(
-///         "/assets/audio/myAudio.mp3",
-///     ))
+///     _assetsAudioPlayer.open(AssetsAudio(
+///       asset: "",
+///       folder: ,
+///     )
 ///
 /// Don't forget to declare the audio folder in your `pubspec.yaml`
 ///
@@ -34,6 +28,7 @@ class AssetsAudioPlayer {
   /// Stores opened asset audio path to use it on the `_current` BehaviorSubject (in `PlayingAudio`)
   String _lastOpenedAssetsAudioPath;
 
+  //nullable
   _CurrentPlaylist _playlist;
 
   ReadingPlaylist get playlist {
@@ -41,10 +36,9 @@ class AssetsAudioPlayer {
       return null;
     } else {
       return ReadingPlaylist(
-        //immutable copy
-        audios: _playlist.playlist.audios,
-        currentIndex: _playlist.playlistIndex,
-      );
+          //immutable copy
+          assetAudioPaths: _playlist.playlist.assetAudioPaths,
+          currentIndex: _playlist.playlistIndex);
     }
   }
 
@@ -66,7 +60,8 @@ class AssetsAudioPlayer {
   ValueStream<bool> get isPlaying => _isPlaying.stream;
 
   /// Then mediaplayer playing audio (mutable)
-  final BehaviorSubject<Playing> _current = BehaviorSubject();
+  final BehaviorSubject<PlayingAudio> _current =
+      BehaviorSubject<PlayingAudio>();
 
   /// The current playing audio, filled with the total song duration
   /// Exposes a PlayingAudio
@@ -75,34 +70,44 @@ class AssetsAudioPlayer {
   ///     final PlayingAudio playing = _assetsAudioPlayer.current.value;
   ///
   /// Listen to the current playing song
-  ///     _assetsAudioPlayer.current.listen((playing){
-  ///         final path = playing.audio.path;
-  ///         final songDuration = playing.audio.duration;
+  ///     _assetsAudioPlayer.current.listen((playingAudio){
+  ///         final asset = playingAudio.assetAudio;
+  ///         final songDuration = playingAudio.duration;
   ///     })
   ///
-  ValueStream<Playing> get current => _current.stream;
+  ValueStream<PlayingAudio> get current => _current.stream;
 
-  /// Called when the the complete playlist finished to play (mutable)
-  final BehaviorSubject<bool> _playlistFinished =
-      BehaviorSubject<bool>.seeded(false);
+  /// The current playing playlist audio, filled with the total song duration
+  /// works the same as @current stream
+  final BehaviorSubject<PlaylistPlayingAudio> _playlistCurrent =
+      BehaviorSubject<PlaylistPlayingAudio>();
 
-  /// Called when the complete playlist has finished to play
+  /// The current playlist song
+  /// Stream contains null if it has no playlist
+  Stream<PlaylistPlayingAudio> get playlistCurrent => _playlistCurrent.stream;
+
+  /// Called when the playing song (or the complete playlist if playing a playlist) finished (mutable)
+  final BehaviorSubject<bool> _finished = BehaviorSubject<bool>.seeded(false);
+
+  /// Called when the current song (or the complete playlist) has finished to play
   ///     _assetsAudioPlayer.finished.listen((finished){
   ///
   ///     })
   ///
-  ValueStream<bool> get playlistFinished => _playlistFinished.stream;
+  ValueStream<bool> get finished => _finished.stream;
 
   /// Called when the current playlist song has finished (mutable)
   /// Using a playlist, the `finished` stram will be called only if the complete playlist finished
   /// _assetsAudioPlayer.playlistAudioFinished.listen((audio){
   ///      the $audio has finished to play, moving to next audio
   /// })
-  final PublishSubject<Playing> _playlistAudioFinished = PublishSubject();
+  final PublishSubject<PlaylistPlayingAudio> _playlistAudioFinished =
+      PublishSubject<PlaylistPlayingAudio>();
 
   /// Called when the current playlist song has finished
   /// Using a playlist, the `finished` stram will be called only if the complete playlist finished
-  Stream<Playing> get playlistAudioFinished => _playlistAudioFinished.stream;
+  Stream<PlaylistPlayingAudio> get playlistAudioFinished =>
+      _playlistAudioFinished.stream;
 
   /// Then current playing song position (in seconds) (mutable)
   final BehaviorSubject<Duration> _currentPosition =
@@ -145,13 +150,12 @@ class AssetsAudioPlayer {
 
   /// Call it to dispose stream
   void dispose() {
-    stop();
-
     _currentPosition.close();
     _isPlaying.close();
-    _playlistFinished.close();
+    _finished.close();
     _current.close();
     _playlistAudioFinished.close();
+    _playlistCurrent.close();
     _loop.close();
   }
 
@@ -172,18 +176,23 @@ class AssetsAudioPlayer {
             assetAudioPath: _lastOpenedAssetsAudioPath,
             duration: totalDuration,
           );
-
+          _current.value = playingAudio;
           if (_playlist != null) {
-            _current.value = Playing(
-              audio: playingAudio,
-              index: _playlist.playlistIndex,
-              hasNext: _playlist.hasNext(),
-              playlist: ReadingPlaylist(
-                  audios: _playlist.playlist.audios,
-                  currentIndex: _playlist.playlistIndex),
-            );
+            _playlistCurrent.value = PlaylistPlayingAudio(
+                playingAudio: playingAudio,
+                index: _playlist.playlistIndex,
+                hasNext: _playlist.hasNext(),
+                playlist: _playlist.playlist);
           }
           break;
+        /*
+            case 'player.next':
+              _next.add(true);
+              break;
+            case 'player.prev':
+              _prev.add(true);
+              break;
+              */
         case 'player.position':
           if (call.arguments is int) {
             _currentPosition.value = Duration(seconds: call.arguments);
@@ -203,14 +212,14 @@ class AssetsAudioPlayer {
 
   void playlistPlayAtIndex(int index) {
     _playlist.moveTo(index);
-    _open(_playlist.currentAudioPath());
+    _open(_playlist.currentAudioPath(), resetPlaylist: false);
   }
 
-  bool previous() {
+  bool playlistPrevious() {
     if (_playlist != null) {
       if (_playlist.hasPrev()) {
         _playlist.selectPrev();
-        _open(_playlist.currentAudioPath());
+        _open(_playlist.currentAudioPath(), resetPlaylist: false);
         return true;
       } else if (_playlist.playlistIndex == 0) {
         seek(Duration.zero);
@@ -221,30 +230,30 @@ class AssetsAudioPlayer {
     return false;
   }
 
-  bool next({bool stopIfLast = false}) {
+  bool playlistNext({bool stopIfLast = false}) {
     if (_playlist != null) {
       if (_playlist.hasNext()) {
-        _playlistAudioFinished.add(Playing(
-          audio: this._current.value.audio,
-          index: this._current.value.index,
+        _playlistAudioFinished.add(PlaylistPlayingAudio(
+          playingAudio: this.current.value,
+          index: _playlist.playlistIndex,
           hasNext: true,
-          playlist: this._current.value.playlist,
+          playlist: _playlist.playlist,
         ));
         _playlist.selectNext();
-        _open(_playlist.currentAudioPath());
+        _open(_playlist.currentAudioPath(), resetPlaylist: false);
 
         return true;
       } else if (loop) {
         //last element
-        _playlistAudioFinished.add(Playing(
-          audio: this._current.value.audio,
-          index: this._current.value.index,
+        _playlistAudioFinished.add(PlaylistPlayingAudio(
+          playingAudio: this.current.value,
+          index: _playlist.playlistIndex,
           hasNext: false,
-          playlist: this._current.value.playlist,
+          playlist: _playlist.playlist,
         ));
 
         _playlist.returnToFirst();
-        _open(_playlist.currentAudioPath());
+        _open(_playlist.currentAudioPath(), resetPlaylist: false);
 
         return true;
       } else if (stopIfLast) {
@@ -256,11 +265,20 @@ class AssetsAudioPlayer {
   }
 
   void _onfinished(bool isFinished) {
-    bool nextDone = next(stopIfLast: false);
-    if (nextDone) {
-      _playlistFinished.value = false; //continue playing the playlist
+    if (_playlist != null) {
+      bool next = playlistNext(stopIfLast: false);
+      if (next) {
+        _finished.value = false; //continue playing the playlist
+      } else {
+        _finished.value = true; // no next elements -> finished
+      }
     } else {
-      _playlistFinished.value = true; // no next elements -> finished
+      _finished.value = isFinished;
+      if (loop) {
+        if (_lastOpenedAssetsAudioPath != null) {
+          open(_lastOpenedAssetsAudioPath);
+        }
+      }
     }
   }
 
@@ -275,31 +293,12 @@ class AssetsAudioPlayer {
     }
   }
 
-  //private method, used in open(playlist) and open(path)
-  void _open(String assetAudioPath) async {
-    if (assetAudioPath != null) {
-      try {
-        _channel.invokeMethod('open', assetAudioPath);
-      } catch (e) {
-        print(e);
-      }
-
-      _lastOpenedAssetsAudioPath = assetAudioPath;
-    }
-  }
-
-  void _openPlaylist(Playlist playlist) async {
-    this._playlist = _CurrentPlaylist(playlist: playlist);
-    _playlist.moveTo(playlist.startIndex);
-    _open(_playlist.currentAudioPath());
-  }
-
   /// Open a song from the asset
   /// ### Example
   ///
   ///     AssetsAudioPlayer _assetsAudioPlayer = AssetsAudioPlayer();
   ///
-  ///     _assetsAudioPlayer.open(Audio("assets/audios/song1.mp3"))
+  ///     _assetsAudioPlayer.open("assets/audios/song1.mp3")
   ///
   /// Don't forget to declare the audio folder in your `pubspec.yaml`
   ///
@@ -307,13 +306,32 @@ class AssetsAudioPlayer {
   ///       assets:
   ///         - assets/audios/
   ///
-  void open(Playable playable) async {
-    if (playable is Playlist &&
-        playable.audios != null &&
-        playable.audios.length > 0) {
-      _openPlaylist(playable);
-    } else if (playable is Audio) {
-      _openPlaylist(Playlist(audios: [playable]));
+  void open(String assetAudioPath) async {
+    _open(assetAudioPath, resetPlaylist: true);
+  }
+
+  //private method, used in open(playlist) and open(path)
+  void _open(String assetAudioPath, {@required bool resetPlaylist}) async {
+    if (resetPlaylist) {
+      _playlist = null;
+      _playlistAudioFinished.add(null);
+    }
+    try {
+      _channel.invokeMethod('open', assetAudioPath);
+    } catch (e) {
+      print(e);
+    }
+
+    _lastOpenedAssetsAudioPath = assetAudioPath;
+  }
+
+  void openPlaylist(Playlist playlist) async {
+    if (playlist != null &&
+        playlist.assetAudioPaths != null &&
+        playlist.assetAudioPaths.length > 0) {
+      this._playlist = _CurrentPlaylist(playlist: playlist);
+      _playlist.moveTo(playlist.startIndex);
+      _open(_playlist.currentAudioPath(), resetPlaylist: false);
     } else {
       //do nothing
       //throw exception ?
@@ -365,14 +383,58 @@ class AssetsAudioPlayer {
     _channel.invokeMethod('stop');
   }
 
-//void shufflePlaylist() {
-//  TODO()
-//}
+  /// TODO ShufflePlaylist
+  //void shufflePlaylist() {
+  //  TODO()
+  //}
 
   /// TODO Playlist Loop / Loop 1
-//void playlistLoop(PlaylistLoop /* enum */ mode) {
-//  TODO()
-//}
+  //void playlistLoop(PlaylistLoop /* enum */ mode) {
+  //  TODO()
+  //}
+}
+
+/// Represents the current played audio asset
+/// When the player opened a song, it will ping AssetsAudioPlayer.current with a `AssetsAudio`
+///
+/// ### Example
+///     final assetAudio = AssetsAudio(
+///       assets/audios/song1.mp3,
+///     )
+///
+///     _assetsAudioPlayer.current.listen((PlayingAudio current){
+///         //ex: retrieve the current song's total duration
+///     });
+///
+///     _assetsAudioPlayer.open(assetAudio);
+///
+@immutable
+class PlayingAudio {
+  ///the opened asset
+  final String assetAudioPath;
+
+  ///the current song's total duration
+  final Duration duration;
+
+  const PlayingAudio({this.assetAudioPath = "", this.duration = Duration.zero});
+}
+
+@immutable
+class Playlist {
+  final List<String> assetAudioPaths;
+
+  final int startIndex;
+
+  const Playlist({@required this.assetAudioPaths, this.startIndex = 0});
+}
+
+@immutable
+class ReadingPlaylist {
+  final List<String> assetAudioPaths;
+  final int currentIndex;
+
+  const ReadingPlaylist(
+      {@required this.assetAudioPaths, this.currentIndex = 0});
 }
 
 class _CurrentPlaylist {
@@ -381,9 +443,7 @@ class _CurrentPlaylist {
   int playlistIndex = 0;
 
   int selectNext() {
-    if (hasNext()) {
-      playlistIndex += 1;
-    }
+    playlistIndex += 1;
     return playlistIndex;
   }
 
@@ -391,18 +451,13 @@ class _CurrentPlaylist {
     if (index < 0) {
       playlistIndex = 0;
     } else {
-      playlistIndex = index % playlist.numberOfItems;
+      playlistIndex = index % playlist.assetAudioPaths.length;
     }
     return playlistIndex;
   }
 
-  //nullable
   String audioPath({int at}) {
-    if (at < playlist.audios.length) {
-      return playlist.audios[at]?.path;
-    } else {
-      return null;
-    }
+    return playlist.assetAudioPaths[at];
   }
 
   String currentAudioPath() {
@@ -410,7 +465,7 @@ class _CurrentPlaylist {
   }
 
   bool hasNext() {
-    return playlistIndex + 1 < playlist.numberOfItems;
+    return playlistIndex + 1 <= playlist.assetAudioPaths.length;
   }
 
   _CurrentPlaylist({@required this.playlist});
@@ -429,4 +484,25 @@ class _CurrentPlaylist {
       playlistIndex = 0;
     }
   }
+}
+
+@immutable
+class PlaylistPlayingAudio {
+  ///the opened asset
+  final PlayingAudio playingAudio;
+
+  /// this audio index in playlist
+  final int index;
+
+  /// if this audio has a next element (if no : last element)
+  final bool hasNext;
+
+  /// the parent playlist
+  final Playlist playlist;
+
+  PlaylistPlayingAudio(
+      {@required this.playingAudio,
+      @required this.index,
+      @required this.hasNext,
+      @required this.playlist});
 }
