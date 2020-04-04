@@ -103,6 +103,7 @@ class AssetsAudioPlayerPlugin(private val context: Context, private val channel:
             channel.invokeMethod(METHOD_POSITION, 0)
 
             mediaPlayer?.stop()
+            mediaPlayer?.reset()
             mediaPlayer?.release()
             channel.invokeMethod(METHOD_IS_PLAYING, false)
             handler.removeCallbacks(updatePosition)
